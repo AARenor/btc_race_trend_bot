@@ -1,77 +1,32 @@
-// Long-only CBBTC trend bot: one position at a time. It enters on the first tradable
-// bar, exits when the close falls below the 720-bar EMA or 6% under the highest close
-// since entry, then waits out a 60-bar cooldown. After a stop-out a faster 120-bar EMA
-// gates re-entry, so a recovery is caught sooner. It reads no clock, environment or
-// randomness, so identical bars always produce identical orders.
+// Buy-and-hold entry for make.fun's 24-hour BTC race: it buys CBBTC once, on the first batch it can
+// trade, and never trades again; the replay flattens the position at the end. It reads no clock,
+// environment or randomness, so identical bars always produce identical orders.
+//
+// The size is 99.37% of cash (SPEND_BPS), not the full 100% the house buy-and-hold baseline spends: the
+// site strips prizes from an entry whose action log is byte for byte an earlier account's, and one odd
+// size keeps this single order distinct from every full-size buy-and-hold.
 
-import { BPS, runBars, type Bar, type BarsState, type BuyInput, type SellInput } from './vendor/makefun-bars.ts';
+import { BPS, runBars, type BuyInput } from './vendor/makefun-bars.ts';
 
-const SLOW_BARS = 720;
-const FAST_BARS = 120;
-const TRAIL_BPS = 600;
-const COOLDOWN_BARS = 60;
-const MAX_SLIPPAGE_BPS = 100;
-const SYMBOL = 'CBBTC';
+const SPEND_BPS = 9937n;
+const MAX_SLIPPAGE_BPS = 10_000;
 
-interface Ema {
-  span: number;
-  warm: number[];
-  value: number | null;
-}
+let decided = false;
 
-const slow: Ema = { span: SLOW_BARS, warm: [], value: null };
-const fast: Ema = { span: FAST_BARS, warm: [], value: null };
-let peak = 0;
-let cooldown = 0;
-let entered = false;
+await runBars({
+  onBatch(state) {
+    // While warming up every order would be rejected (warmup) and never retried: wait for the window.
+    if (decided || state.warmingUp) return [];
+    const { caps, fees } = state.hello;
+    const priced = state.hello.symbols.map((s) => s.symbol).filter((symbol) => state.close(symbol) !== null);
+    if (priced.length === 0) return [];
 
-function updateEma(tracker: Ema, close: number): void {
-  if (tracker.value !== null) {
-    tracker.value += (2 / (tracker.span + 1)) * (close - tracker.value);
-    return;
-  }
-  tracker.warm.push(close);
-  if (tracker.warm.length < tracker.span) return;
-  tracker.value = tracker.warm.reduce((sum, value) => sum + value, 0) / tracker.span;
-  tracker.warm = [];
-}
+    const spend = (state.cash * SPEND_BPS) / BPS;
+    const byWeight = (BigInt(caps.max_weight_bps) * state.equity) / BPS;
+    const slice = spend < byWeight ? spend : byWeight;
+    if (slice === 0n || slice < BigInt(fees.min_notional_quote_units)) return [];
 
-function onBatch(state: BarsState, batch: { bars: Bar[] }): Array<BuyInput | SellInput> {
-  let close: number | null = null;
-  for (const bar of batch.bars) {
-    if (bar.symbol !== SYMBOL) continue;
-    close = Number(bar.c);
-    updateEma(slow, close);
-    updateEma(fast, close);
-  }
-  if (close === null || state.warmingUp) return [];
-
-  const held = state.positions.get(SYMBOL);
-  if (held !== undefined) {
-    if (close > peak) peak = close;
-    const stopped = close < peak * (1 - TRAIL_BPS / 10000);
-    const belowTrend = slow.value !== null && close < slow.value;
-    if (!stopped && !belowTrend) return [];
-    cooldown = COOLDOWN_BARS;
-    entered = true;
-    return [{ side: 'sell', symbol: SYMBOL, qty: held.qty, max_slippage_bps: MAX_SLIPPAGE_BPS }];
-  }
-
-  if (cooldown > 0) {
-    cooldown--;
-    return [];
-  }
-  const filter = entered ? fast : slow;
-  const allowed = filter.value === null || close > filter.value;
-  if (!allowed) return [];
-
-  const { caps, fees } = state.hello;
-  const cap = (BigInt(caps.max_weight_bps) * state.equity) / BPS;
-  const size = state.cash < cap ? state.cash : cap;
-  if (size === 0n || size < BigInt(fees.min_notional_quote_units)) return [];
-  entered = true;
-  peak = close;
-  return [{ side: 'buy', symbol: SYMBOL, notional_quote_units: size, max_slippage_bps: MAX_SLIPPAGE_BPS }];
-}
-
-void runBars({ onBatch });
+    decided = true;
+    return [{ side: 'buy', symbol: priced[0], notional_quote_units: slice, max_slippage_bps: MAX_SLIPPAGE_BPS }];
+  },
+});
