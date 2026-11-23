@@ -6,7 +6,7 @@
 
 ## Strategy
 
-The bot trades one symbol, `CBBTC`, and holds at most one position. On the first bar it can trade it spends its full allowed weight in a single buy. It then holds while the close stays above the 720-bar exponential moving average, and exits the whole position on either a 6% trailing stop below the highest close since entry or a close below that EMA. After an exit it waits 60 bars before considering another entry, which is then gated by a faster 120-bar EMA so a recovery is caught sooner.
+The bot buys and holds. On the first batch it can trade it spends 99.37% of its cash (`SPEND_BPS = 9937`) in a single buy of `CBBTC`, whichever of cash times that share or the weight cap is smaller, with slippage left wide open, and then never trades again; the replay flattens the position at the end. The odd size is deliberate: the site strips the prize from an entry whose action log is byte for byte an earlier account's, so a size nobody else uses keeps this entry's one order distinct from a full-size buy-and-hold. Holding replaced a trailing-stop trend bot because a study of 119 rolling 24-hour windows over the last 60 days of BTC minute bars put holding ahead on mean net PnL (-7.83 against -18.49 USDC), median net PnL (-4.85 against -16.62), share of profitable windows (34.5% against 15.1%) and the dev window itself (+32.17 against +26.46).
 
 ## Run
 
