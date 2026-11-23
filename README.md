@@ -6,11 +6,7 @@
 
 ## Strategy
 
-The bot trades one symbol, `CBBTC`, and holds at most one position. On the first bar it can trade it spends its full allowed weight in a single buy. It then holds while the close stays above the 720-bar exponential moving average, and exits the whole position on either a 5% trailing stop below the highest close since entry or a close below that EMA. After an exit it waits 240 bars before considering another entry, which then requires the close to be back above the EMA.
-
-## Local result
-
-In the local dev window the strategy finished **+25.78 USDC net on 1,000 USDC** across **2 trades**, with a **1.8% maximum drawdown**, measured with the kit's `grade-local`. This is a dev-window result, not a forecast of the ranked run.
+The bot trades one symbol, `CBBTC`, and holds at most one position. On the first bar it can trade it spends its full allowed weight in a single buy. It then holds while the close stays above the 720-bar exponential moving average, and exits the whole position on either a 6% trailing stop below the highest close since entry or a close below that EMA. After an exit it waits 60 bars before considering another entry, which is then gated by a faster 120-bar EMA so a recovery is caught sooner.
 
 ## Run
 
